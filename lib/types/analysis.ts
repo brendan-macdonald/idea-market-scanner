@@ -1,3 +1,5 @@
+import type { SearchResult } from "./search";
+
 //Represents the user's idea input.
 //(minimal for MVP)
 export interface IdeaInput {
@@ -21,4 +23,7 @@ export interface AnalysisResult {
 
   /** Actionable suggestions for the user */
   suggestions: string[];
+
+  /** Similar products found via web search */
+  similarProducts?: SearchResult[];
 }

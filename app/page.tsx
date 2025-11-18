@@ -139,7 +139,7 @@ export default function HomePage() {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="e.g., A fitness app for remote workers"
-                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900"
                   required
                   minLength={3}
                 />
@@ -159,7 +159,7 @@ export default function HomePage() {
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Describe your idea in detail..."
                   rows={5}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-gray-900"
                   required
                   minLength={10}
                 />

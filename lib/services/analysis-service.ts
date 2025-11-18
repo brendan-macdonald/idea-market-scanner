@@ -3,6 +3,8 @@ import type {
   AnalysisResult,
   CompetitionLevel,
 } from "../types/analysis";
+import type { SearchProvider } from "./search/search-client";
+import type { SearchResult } from "../types/search";
 
 /**
  * Strategy interface for scoring ideas.
@@ -55,12 +57,12 @@ function calculateCompetitionLevel(originalityScore: number): CompetitionLevel {
 
 /**
  * Generates contextual suggestions based on the analysis.
- * Pure function, independent of scoring strategy.
+ * Now enhanced with search results data.
  */
-
 function generateSuggestions(
   originalityScore: number,
-  competitionLevel: CompetitionLevel
+  competitionLevel: CompetitionLevel,
+  similarProducts?: SearchResult[]
 ): string[] {
   const suggestions: string[] = [];
 
@@ -83,6 +85,13 @@ function generateSuggestions(
     );
   }
 
+  // Add suggestion based on number of similar products found
+  if (similarProducts && similarProducts.length > 0) {
+    suggestions.push(
+      `Found ${similarProducts.length} similar products. Study their reviews to identify pain points.`
+    );
+  }
+
   if (suggestions.length === 0) {
     suggestions.push("Start with an MVP and gather user feedback early.");
   }
@@ -96,16 +105,43 @@ function generateSuggestions(
 
 export async function analyzeIdea(
   input: IdeaInput,
-  scoringStrategy: IdeaScoringStrategy = new KeywordScoringStrategy()
+  options: {
+    scoringStrategy?: IdeaScoringStrategy;
+    searchClient?: SearchProvider;
+  } = {}
 ): Promise<AnalysisResult> {
-  //await in case strategy is async
+  const { scoringStrategy = new KeywordScoringStrategy(), searchClient } =
+    options;
+
+  // Run scoring
   const originalityScore = await scoringStrategy.calculateScore(input);
   const competitionLevel = calculateCompetitionLevel(originalityScore);
-  const suggestions = generateSuggestions(originalityScore, competitionLevel);
+
+  // Optionally search for similar products (Phase 2A)
+  let similarProducts: SearchResult[] | undefined;
+  if (searchClient) {
+    try {
+      const searchQuery = `${input.title} ${input.description}`;
+      const searchResults = await searchClient.search(searchQuery, {
+        maxResults: 5,
+      });
+      similarProducts = searchResults.results;
+    } catch (error) {
+      console.error("Search failed, continuing without results:", error);
+      // Graceful degradation: continue without search results
+    }
+  }
+
+  const suggestions = generateSuggestions(
+    originalityScore,
+    competitionLevel,
+    similarProducts
+  );
 
   return {
     originalityScore,
     competitionLevel,
     suggestions,
+    similarProducts,
   };
 }

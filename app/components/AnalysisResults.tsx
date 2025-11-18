@@ -61,6 +61,55 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
           ))}
         </ul>
       </div>
+
+      {/* Similar Products (Phase 2A) */}
+      {result.similarProducts && result.similarProducts.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-700 mb-3">
+            Similar Products Found
+          </h3>
+          <div className="space-y-3">
+            {result.similarProducts.map((product) => (
+              <a
+                key={product.id}
+                href={product.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block p-4 border border-gray-200 rounded-lg hover:border-indigo-300 hover:shadow-md transition-all"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h4 className="font-medium text-gray-900 hover:text-indigo-600">
+                      {product.title}
+                    </h4>
+                    {product.domain && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        {product.domain}
+                      </p>
+                    )}
+                    <p className="text-sm text-gray-600 mt-2 line-clamp-2">
+                      {product.description}
+                    </p>
+                  </div>
+                  <svg
+                    className="w-4 h-4 text-gray-400 ml-2 flex-shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
+                    />
+                  </svg>
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

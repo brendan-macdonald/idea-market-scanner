@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeIdea } from "@/lib/services/analysis-service";
+import { createSearchClient } from "@/lib/services/search/search-client";
 import type { IdeaInput } from "@/lib/types/analysis";
 
 /**
@@ -26,8 +27,20 @@ export async function POST(request: NextRequest) {
       description: body.description,
     };
 
-    //call business logic
-    const result = await analyzeIdea(input);
+    // Create search client (Phase 2A)
+    // If API key is missing, search will be skipped gracefully
+    let searchClient;
+    try {
+      searchClient = createSearchClient();
+    } catch (error) {
+      console.warn(
+        "Search client unavailable, continuing without search:",
+        error
+      );
+    }
+
+    //call business logic with search integration
+    const result = await analyzeIdea(input, { searchClient });
 
     //return result
     return NextResponse.json(result, { status: 200 });
