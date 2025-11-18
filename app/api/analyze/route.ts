@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeIdea } from "@/lib/services/analysis-service";
 import { createSearchClient } from "@/lib/services/search/search-client";
+import { createEmbeddingService } from "@/lib/services/embeddings/embedding-service";
 import type { IdeaInput } from "@/lib/types/analysis";
 
 /**
@@ -39,8 +40,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    //call business logic with search integration
-    const result = await analyzeIdea(input, { searchClient });
+    // Create embedding service (Phase 2B)
+    let embeddingService;
+    try {
+      embeddingService = createEmbeddingService();
+    } catch (error) {
+      console.warn(
+        "Embedding service unavailable, will use keyword scoring:",
+        error
+      );
+    }
+
+    //call business logic with search + embeddings integration
+    const result = await analyzeIdea(input, {
+      searchClient,
+      embeddingService,
+      useEmbeddings: !!embeddingService, // Use embeddings if available
+    });
 
     //return result
     return NextResponse.json(result, { status: 200 });

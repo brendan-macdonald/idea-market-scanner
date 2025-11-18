@@ -5,6 +5,8 @@ import type {
 } from "../types/analysis";
 import type { SearchProvider } from "./search/search-client";
 import type { SearchResult } from "../types/search";
+import { EmbeddingService } from "./embeddings/embedding-service";
+import { EmbeddingScoringStrategy } from "./scoring/embedding-strategy";
 
 /**
  * Strategy interface for scoring ideas.
@@ -12,36 +14,6 @@ import type { SearchResult } from "../types/search";
  */
 export interface IdeaScoringStrategy {
   calculateScore(input: IdeaInput): number | Promise<number>;
-}
-
-/**
- * Phase 1: Simple keyword-based scoring.
- * Phase 2: an EmbeddingScoringStrategy that implements the same interface.
- */
-
-class KeywordScoringStrategy implements IdeaScoringStrategy {
-  private readonly saturatedKeywords = [
-    "social network",
-    "dating app",
-    "todo list",
-    "recipe app",
-    "fitness tracker",
-    "e-commerce",
-    "marketplace",
-  ];
-
-  calculateScore(input: IdeaInput): number {
-    const combinedText =
-      `${input.title} ${input.description}`.toLocaleLowerCase();
-
-    //simple heuristic: count how many saturated keywords appear
-    const matchCount = this.saturatedKeywords.filter((keyword) =>
-      combinedText.includes(keyword)
-    ).length;
-
-    const baseScore = 100 - matchCount * 20;
-    return Math.max(0, Math.min(100, baseScore));
-  }
 }
 
 /**
@@ -108,14 +80,16 @@ export async function analyzeIdea(
   options: {
     scoringStrategy?: IdeaScoringStrategy;
     searchClient?: SearchProvider;
+    embeddingService?: EmbeddingService;
+    useEmbeddings?: boolean; // New flag for Phase 2B
   } = {}
 ): Promise<AnalysisResult> {
-  const { scoringStrategy = new KeywordScoringStrategy(), searchClient } =
-    options;
-
-  // Run scoring
-  const originalityScore = await scoringStrategy.calculateScore(input);
-  const competitionLevel = calculateCompetitionLevel(originalityScore);
+  const {
+    scoringStrategy,
+    searchClient,
+    embeddingService,
+    useEmbeddings = false, // Default to keywords for backward compatibility
+  } = options;
 
   // Optionally search for similar products (Phase 2A)
   let similarProducts: SearchResult[] | undefined;
@@ -131,6 +105,45 @@ export async function analyzeIdea(
       // Graceful degradation: continue without search results
     }
   }
+
+  // Determine which scoring strategy to use (Phase 2B)
+  let finalStrategy: IdeaScoringStrategy;
+
+  if (scoringStrategy) {
+    // Use provided strategy (for testing or custom strategies)
+    finalStrategy = scoringStrategy;
+  } else if (
+    useEmbeddings &&
+    embeddingService &&
+    similarProducts &&
+    similarProducts.length > 0
+  ) {
+    // Use embedding strategy if enabled and we have data
+    console.log("Using embedding-based scoring");
+    finalStrategy = new EmbeddingScoringStrategy(
+      embeddingService,
+      similarProducts
+    );
+  } else {
+    // No scoring possible without search results + embeddings
+    console.warn(
+      "No search results or embedding service - returning neutral score"
+    );
+    // Return neutral result
+    return {
+      originalityScore: 50,
+      competitionLevel: "Medium",
+      suggestions: [
+        "Unable to analyze - search or embedding service unavailable.",
+        "Try again later or check your API keys.",
+      ],
+      similarProducts: undefined,
+    };
+  }
+
+  // Run scoring
+  const originalityScore = await finalStrategy.calculateScore(input);
+  const competitionLevel = calculateCompetitionLevel(originalityScore);
 
   const suggestions = generateSuggestions(
     originalityScore,
