@@ -1,64 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeIdea } from "@/lib/services/analysis-service";
-import { createSearchClient } from "@/lib/services/search/search-client";
-import { createEmbeddingService } from "@/lib/services/embeddings/embedding-service";
 import type { IdeaInput } from "@/lib/types/analysis";
 
 /**
  * POST /api/analyze
  *
- * Accepts an idea and returns an analysis.
- * This is a "thin" HTTP layer — validation + calling the service.
+ * Simple API route - just validate input and call analyzeIdea().
+ * All logic is in the service layer.
  */
-
 export async function POST(request: NextRequest) {
   try {
-    //parse request body
     const body = await request.json();
 
-    //validate input
+    // Validate input
     const validationError = validateInput(body);
     if (validationError) {
       return NextResponse.json({ error: validationError }, { status: 400 });
     }
 
-    //type-safe after validation
     const input: IdeaInput = {
       title: body.title,
       description: body.description,
     };
 
-    // Create search client (Phase 2A)
-    // If API key is missing, search will be skipped gracefully
-    let searchClient;
-    try {
-      searchClient = createSearchClient();
-    } catch (error) {
-      console.warn(
-        "Search client unavailable, continuing without search:",
-        error
-      );
-    }
+    // Call the simplified analysis service
+    const result = await analyzeIdea(input);
 
-    // Create embedding service (Phase 2B)
-    let embeddingService;
-    try {
-      embeddingService = createEmbeddingService();
-    } catch (error) {
-      console.warn(
-        "Embedding service unavailable, will use keyword scoring:",
-        error
-      );
-    }
-
-    //call business logic with search + embeddings integration
-    const result = await analyzeIdea(input, {
-      searchClient,
-      embeddingService,
-      useEmbeddings: !!embeddingService, // Use embeddings if available
-    });
-
-    //return result
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     console.error("Error analyzing idea:", error);
@@ -68,9 +35,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
-//Validates request body
-//Returns an error message if invalid, null if valid.
 
 function validateInput(body: unknown): string | null {
   if (!body || typeof body !== "object") {
@@ -95,5 +59,5 @@ function validateInput(body: unknown): string | null {
     return "Description must be at least 10 characters";
   }
 
-  return null; //valid input
+  return null;
 }

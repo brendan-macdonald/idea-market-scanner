@@ -66,7 +66,7 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
       {result.similarProducts && result.similarProducts.length > 0 && (
         <div>
           <h3 className="text-sm font-medium text-gray-700 mb-3">
-            Similar Products Found
+            Similar Products Found ({result.similarProducts.length})
           </h3>
           <div className="space-y-3">
             {result.similarProducts.map((product) => (
@@ -79,9 +79,20 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
-                    <h4 className="font-medium text-gray-900 hover:text-indigo-600">
-                      {product.title}
-                    </h4>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-medium text-gray-900 hover:text-indigo-600">
+                        {product.title}
+                      </h4>
+                      {product.source && (
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${getSourceBadgeColor(
+                            product.source
+                          )}`}
+                        >
+                          {getSourceDisplayName(product.source)}
+                        </span>
+                      )}
+                    </div>
                     {product.domain && (
                       <p className="text-xs text-gray-500 mt-1">
                         {product.domain}
@@ -130,5 +141,39 @@ function getCompetitionColor(
       return "bg-orange-100 text-orange-800";
     case "Very High":
       return "bg-red-100 text-red-800";
+  }
+}
+
+/**
+ * Returns Tailwind classes for source badge based on the source name.
+ */
+function getSourceBadgeColor(source: string): string {
+  switch (source) {
+    case "hacker-news":
+      return "bg-orange-50 text-orange-700 border border-orange-200";
+    case "itunes":
+      return "bg-blue-50 text-blue-700 border border-blue-200";
+    case "brave-search":
+    case "brave":
+      return "bg-purple-50 text-purple-700 border border-purple-200";
+    default:
+      return "bg-gray-50 text-gray-700 border border-gray-200";
+  }
+}
+
+/**
+ * Returns human-readable display name for the source.
+ */
+function getSourceDisplayName(source: string): string {
+  switch (source) {
+    case "hacker-news":
+      return "Hacker News";
+    case "itunes":
+      return "App Store";
+    case "brave-search":
+    case "brave":
+      return "Web";
+    default:
+      return source;
   }
 }

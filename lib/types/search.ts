@@ -16,6 +16,8 @@ export interface SearchResult {
   domain?: string;
   //Optional: relevance score from the search engine (0-1)
   relevanceScore?: number;
+  // Optional: source that returned this result (hacker-news, itunes, brave, etc.)
+  source?: string;
 }
 
 /**
