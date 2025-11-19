@@ -47,10 +47,13 @@ export async function analyzeIdea(
   options?: AnalysisOptions
 ): Promise<AnalysisResult> {
   const onProgress = options?.onProgress || (() => {});
-  
+
   try {
     // Step 1: Search for competitors across multiple sources
-    onProgress("Searching for competitors across web, HackerNews, and App Store...", 10);
+    onProgress(
+      "Searching for competitors across web, HackerNews, and App Store...",
+      10
+    );
     const competitors = await searchForCompetitors(input);
 
     if (competitors.length === 0) {

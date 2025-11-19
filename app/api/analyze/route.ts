@@ -38,31 +38,25 @@ export async function POST(request: NextRequest) {
               onProgress: (status: string, progress: number) => {
                 // Send progress update as SSE
                 const data = JSON.stringify({ status, progress });
-                controller.enqueue(
-                  encoder.encode(`data: ${data}\n\n`)
-                );
+                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
               },
             });
 
             // Send final result
-            const finalData = JSON.stringify({ 
-              status: "complete", 
-              progress: 100, 
-              result 
+            const finalData = JSON.stringify({
+              status: "complete",
+              progress: 100,
+              result,
             });
-            controller.enqueue(
-              encoder.encode(`data: ${finalData}\n\n`)
-            );
+            controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
             controller.close();
           } catch (error) {
             console.error("Stream error:", error);
-            const errorData = JSON.stringify({ 
-              status: "error", 
-              error: "Analysis failed" 
+            const errorData = JSON.stringify({
+              status: "error",
+              error: "Analysis failed",
             });
-            controller.enqueue(
-              encoder.encode(`data: ${errorData}\n\n`)
-            );
+            controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
             controller.close();
           }
         },
@@ -72,7 +66,7 @@ export async function POST(request: NextRequest) {
         headers: {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          "Connection": "keep-alive",
+          Connection: "keep-alive",
         },
       });
     }
