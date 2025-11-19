@@ -18,6 +18,8 @@ export interface SearchResult {
   relevanceScore?: number;
   // Optional: source that returned this result (hacker-news, itunes, brave, etc.)
   source?: string;
+  // Optional: similarity score from embedding comparison (0-1)
+  similarity?: number;
 }
 
 /**

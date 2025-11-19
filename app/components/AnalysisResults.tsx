@@ -92,6 +92,15 @@ export default function AnalysisResults({ result }: AnalysisResultsProps) {
                           {getSourceDisplayName(product.source)}
                         </span>
                       )}
+                      {product.similarity !== undefined && (
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full ${getSimilarityBadgeColor(
+                            product.similarity
+                          )}`}
+                        >
+                          {(product.similarity * 100).toFixed(0)}% match
+                        </span>
+                      )}
                     </div>
                     {product.domain && (
                       <p className="text-xs text-gray-500 mt-1">
@@ -175,5 +184,23 @@ function getSourceDisplayName(source: string): string {
       return "Web";
     default:
       return source;
+  }
+}
+
+/**
+ * Returns Tailwind classes for similarity badge based on match percentage.
+ * High similarity (70%+) = red (direct competitor)
+ * Medium similarity (50-69%) = yellow
+ * Low similarity (<50%) = green
+ */
+function getSimilarityBadgeColor(similarity: number): string {
+  const percentage = similarity * 100;
+
+  if (percentage >= 70) {
+    return "bg-red-50 text-red-700 border border-red-200 font-semibold";
+  } else if (percentage >= 50) {
+    return "bg-yellow-50 text-yellow-700 border border-yellow-200";
+  } else {
+    return "bg-green-50 text-green-700 border border-green-200";
   }
 }

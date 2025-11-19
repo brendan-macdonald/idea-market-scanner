@@ -23,8 +23,9 @@ import { ITunesSource } from "./product-sources/itunes-source";
 import { createEmbeddingService } from "./embeddings/embedding-service";
 import { cosineSimilarity } from "./embeddings/similarity";
 
-// Simple threshold for determining "close" competitors
-const SIMILARITY_THRESHOLD = 0.7; // 70% similar = close competitor
+// Adjusted threshold - 60% similarity = close competitor (was 70%)
+// This catches more saturated markets where competitors are "close enough"
+const SIMILARITY_THRESHOLD = 0.6;
 
 /**
  * Main analysis function - simple and straightforward.
@@ -38,10 +39,16 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
       return {
         originalityScore: 85,
         competitionLevel: "Low",
+        topCompetitors: [],
+        similarCount: 0,
+        explanation:
+          "No direct competitors found in our search. This could indicate a unique niche or new market space.",
         suggestions: [
-          "No direct competitors found! This could be a unique opportunity.",
           "Validate demand through user interviews before building.",
+          "Research adjacent markets to ensure you're not missing existing solutions.",
+          "Consider whether the lack of competitors indicates low demand or a true gap.",
         ],
+        keywords: extractKeywords(input, []),
         similarProducts: [],
       };
     }
@@ -68,38 +75,106 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
       }))
       .sort((a, b) => b.similarity - a.similarity);
 
+    // Step 3.5: Filter for niche matching
+    // If the idea targets a specific niche/audience, competitors must mention it
+    const nicheTerms = extractNicheTerms(input);
+    const nicheFilteredSimilarities =
+      nicheTerms.length > 0
+        ? similarities.map((s) => {
+            const matchesNiche = competitorMatchesNiche(
+              s.competitor,
+              nicheTerms
+            );
+            // If competitor doesn't match the niche, reduce its similarity significantly
+            return {
+              ...s,
+              similarity: matchesNiche ? s.similarity : s.similarity * 0.5,
+            };
+          })
+        : similarities;
+
     // Step 4: Compute simple metrics
-    const closeCompetitors = similarities.filter(
+    const closeCompetitors = nicheFilteredSimilarities.filter(
       (s) => s.similarity >= SIMILARITY_THRESHOLD
     );
-    const avgSimilarity =
-      similarities.reduce((sum, s) => sum + s.similarity, 0) /
-      similarities.length;
-    const maxSimilarity = similarities[0].similarity;
+    const maxSimilarity = nicheFilteredSimilarities[0].similarity;
+    const top5Avg =
+      nicheFilteredSimilarities
+        .slice(0, 5)
+        .reduce((sum, s) => sum + s.similarity, 0) /
+      Math.min(5, nicheFilteredSimilarities.length);
 
-    // Step 5: Calculate saturation score using simple heuristics
-    // More close competitors + higher similarity = more saturated (lower score)
-    const competitorFactor = Math.min(closeCompetitors.length / 10, 1); // Cap at 10+ competitors
-    const similarityFactor = maxSimilarity * 0.5 + avgSimilarity * 0.5;
-    const saturationLevel = competitorFactor * 0.6 + similarityFactor * 0.4;
+    // Step 5: Calculate saturation score using IMPROVED heuristics
+    // Key insight: High max similarity OR many close competitors = saturated
+    //
+    // Formula breakdown:
+    // - maxSimilarity: If top competitor is 80%+ similar, market is saturated regardless of count
+    // - top5Avg: Average of top 5 competitors matters more than overall average
+    // - competitorFactor: More close competitors = more saturated (exponential growth)
+    //
+    // Weight distribution:
+    // - 40% max similarity (single strong competitor matters)
+    // - 30% top 5 average (cluster of competitors matters)
+    // - 30% competitor count (market breadth matters)
+
+    const competitorFactor = Math.min(closeCompetitors.length / 8, 1); // Cap at 8+ (was 10)
+    const similarityFactor = maxSimilarity * 0.5 + top5Avg * 0.5; // Use top5 instead of avg
+    let saturationLevel =
+      maxSimilarity * 0.4 + similarityFactor * 0.3 + competitorFactor * 0.3;
+
+    // Specificity boost: If idea has multiple unique/niche terms, reduce saturation
+    // This helps distinguish "weather app" (generic) from "AR furniture for tiny homes" (specific niche)
+    const specificityBoost = calculateSpecificityBoost(input, competitors);
+    saturationLevel = saturationLevel * (1 - specificityBoost * 0.3); // Max 30% boost for highly specific ideas
 
     const originalityScore = Math.round((1 - saturationLevel) * 100);
     const competitionLevel = getCompetitionLevel(originalityScore);
 
-    // Attach similarity scores to competitors for display
-    const competitorsWithScores = similarities.map((s) => ({
+    // Attach similarity scores to competitors for display (use niche-filtered scores)
+    const competitorsWithScores = nicheFilteredSimilarities.map((s) => ({
       ...s.competitor,
       similarity: s.similarity,
     }));
 
+    // Extract top 3 competitors for focused display
+    const topCompetitors = nicheFilteredSimilarities.slice(0, 3).map((s) => ({
+      title: s.competitor.title,
+      snippet:
+        s.competitor.description.slice(0, 100) +
+        (s.competitor.description.length > 100 ? "..." : ""),
+      url: s.competitor.url,
+      similarity: s.similarity,
+    }));
+
+    // Extract common keywords
+    const keywords = extractKeywords(input, competitors);
+
+    // Detect unique angle
+    const uniqueAngle = detectUniqueAngle(input, competitors);
+
+    // Generate explanation
+    const explanation = generateExplanation(
+      closeCompetitors.length,
+      nicheFilteredSimilarities.length,
+      top5Avg,
+      maxSimilarity,
+      keywords
+    );
+
     return {
       originalityScore,
       competitionLevel,
+      topCompetitors,
+      similarCount: closeCompetitors.length,
+      explanation,
       suggestions: generateSuggestions(
         originalityScore,
         closeCompetitors.length,
-        competitorsWithScores.length
+        input,
+        topCompetitors
       ),
+      keywords,
+      uniqueAngle,
       similarProducts: competitorsWithScores,
     };
   } catch (error) {
@@ -107,15 +182,388 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
     return {
       originalityScore: 50,
       competitionLevel: "Medium",
-      suggestions: ["Analysis failed. Please try again."],
+      topCompetitors: [],
+      similarCount: 0,
+      explanation: "Analysis failed. Please try again.",
+      suggestions: [
+        "Unable to complete analysis. Please check your API keys and try again.",
+      ],
+      keywords: [],
       similarProducts: [],
     };
   }
 }
 
 /**
+ * Extract common keywords from idea and competitors.
+ */
+function extractKeywords(
+  input: IdeaInput,
+  competitors: SearchResult[]
+): string[] {
+  const text = `${input.title} ${input.description} ${competitors
+    .slice(0, 10)
+    .map((c) => c.title)
+    .join(" ")}`.toLowerCase();
+
+  // Common words to ignore
+  const stopWords = new Set([
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "of",
+    "with",
+    "by",
+    "from",
+    "app",
+    "tool",
+    "platform",
+    "software",
+    "service",
+    "system",
+    "that",
+    "this",
+    "your",
+    "our",
+    "new",
+    "best",
+  ]);
+
+  // Count word frequency
+  const words = text.match(/\b[a-z]{3,}\b/g) || [];
+  const frequency: Record<string, number> = {};
+
+  for (const word of words) {
+    if (!stopWords.has(word)) {
+      frequency[word] = (frequency[word] || 0) + 1;
+    }
+  }
+
+  // Get top 5 keywords
+  return Object.entries(frequency)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 5)
+    .map(([word]) => word);
+}
+
+/**
+ * Detect if the idea has a unique angle not found in competitors.
+ */
+function detectUniqueAngle(
+  input: IdeaInput,
+  competitors: SearchResult[]
+): string | undefined {
+  const ideaText = `${input.title} ${input.description}`.toLowerCase();
+  const competitorText = competitors
+    .map((c) => `${c.title} ${c.description}`)
+    .join(" ")
+    .toLowerCase();
+
+  // Extract distinctive phrases from idea (2-3 word combinations)
+  const ideaWords = ideaText.match(/\b[a-z]+\b/g) || [];
+  const uniquePhrases: string[] = [];
+
+  for (let i = 0; i < ideaWords.length - 1; i++) {
+    const phrase = `${ideaWords[i]} ${ideaWords[i + 1]}`;
+    // Skip common patterns
+    if (
+      phrase.includes("app") ||
+      phrase.includes("platform") ||
+      phrase.includes("tool")
+    )
+      continue;
+
+    // If phrase is in idea but not in competitors, it's potentially unique
+    if (ideaText.includes(phrase) && !competitorText.includes(phrase)) {
+      uniquePhrases.push(phrase);
+    }
+  }
+
+  if (uniquePhrases.length > 0) {
+    return `Unique angle detected: ${uniquePhrases[0]}`;
+  }
+
+  return undefined;
+}
+
+/**
+ * Calculate specificity boost for niche ideas.
+ * Returns 0-1, where 1 = highly specific niche, 0 = generic idea.
+ *
+ * Heuristics:
+ * - Length of title (longer = more specific)
+ * - Number of unique/rare words
+ * - Presence of industry-specific terms
+ */
+function calculateSpecificityBoost(
+  input: IdeaInput,
+  competitors: SearchResult[]
+): number {
+  const ideaText = `${input.title} ${input.description}`.toLowerCase();
+  const words = ideaText.match(/\b[a-z]{4,}\b/g) || [];
+
+  let specificityScore = 0;
+
+  // 1. Title length bonus (longer titles = more specific)
+  // "Weather app" (2 words) vs "AR furniture visualization for tiny homes" (6 words)
+  const titleWords = input.title.split(/\s+/).length;
+  if (titleWords >= 6) specificityScore += 0.4;
+  else if (titleWords >= 4) specificityScore += 0.2;
+
+  // 2. Rare/technical term bonus
+  const rareTerms = [
+    "quantum",
+    "blockchain",
+    "augmented",
+    "decentralized",
+    "construction",
+    "post-quantum",
+    "cryptography",
+    "resistant",
+    "visualization",
+    "tiny",
+  ];
+  const rareTermCount = words.filter((w) => rareTerms.includes(w)).length;
+  if (rareTermCount >= 3) specificityScore += 0.4;
+  else if (rareTermCount >= 2) specificityScore += 0.2;
+
+  // 3. Industry/niche combination bonus
+  // Check for patterns like "[industry] + [generic thing]"
+  const industries = [
+    "medical",
+    "construction",
+    "healthcare",
+    "legal",
+    "finance",
+    "education",
+  ];
+  const genericTerms = ["app", "tool", "platform", "software", "system"];
+  const hasIndustry = words.some((w) => industries.includes(w));
+  const hasGeneric = words.some((w) => genericTerms.includes(w));
+  if (hasIndustry && hasGeneric) specificityScore += 0.3;
+
+  return Math.min(specificityScore, 1); // Cap at 1
+}
+
+/**
+ * Generate a simple explanation of the score.
+ */
+function generateExplanation(
+  closeCompetitors: number,
+  totalCompetitors: number,
+  top5Avg: number,
+  maxSimilarity: number,
+  keywords: string[]
+): string {
+  if (closeCompetitors === 0) {
+    return `We found ${totalCompetitors} products but none with high similarity (>60%). Your idea appears to target a unique niche.`;
+  }
+
+  if (closeCompetitors >= 5) {
+    return `We found ${closeCompetitors} highly similar products with ${(
+      top5Avg * 100
+    ).toFixed(0)}% average match in top 5. Common themes include: ${keywords
+      .slice(0, 3)
+      .join(", ")}.`;
+  }
+
+  if (maxSimilarity > 0.7) {
+    return `Found ${totalCompetitors} similar tools with high overlap. Top competitor is ${(
+      maxSimilarity * 100
+    ).toFixed(0)}% similar with keywords like "${keywords
+      .slice(0, 3)
+      .join(", ")}".`;
+  }
+
+  return `Your idea has ${(top5Avg * 100).toFixed(
+    0
+  )}% average similarity to top competitors from ${totalCompetitors} products — suggesting some competition but room for differentiation.`;
+}
+
+/**
+ * Extract niche/audience terms from the idea.
+ * These are specific segments like "for X", "construction workers", "tiny homes", etc.
+ */
+function extractNicheTerms(input: IdeaInput): string[] {
+  const text = `${input.title} ${input.description}`.toLowerCase();
+  const nicheTerms: string[] = [];
+
+  // Pattern 1: "for X" phrases (e.g., "for construction workers", "for dog owners")
+  const forPatterns = text.match(
+    /for ([a-z\s]+?)(?:\s+(?:who|that|with|in|$))/g
+  );
+  if (forPatterns) {
+    forPatterns.forEach((match) => {
+      const term = match
+        .replace(/^for\s+/, "")
+        .replace(/\s+(who|that|with|in)$/, "")
+        .trim();
+      if (term.length > 3 && term.split(" ").length <= 4) {
+        nicheTerms.push(term);
+      }
+    });
+  }
+
+  // Pattern 2: Industry-specific terms
+  const industries = [
+    "construction",
+    "healthcare",
+    "medical",
+    "finance",
+    "legal",
+    "education",
+    "real estate",
+    "retail",
+    "restaurant",
+    "manufacturing",
+    "logistics",
+    "enterprise",
+    "b2b",
+    "saas",
+    "startup",
+    "freelance",
+  ];
+  industries.forEach((industry) => {
+    if (text.includes(industry)) {
+      nicheTerms.push(industry);
+    }
+  });
+
+  // Pattern 3: Specific demographics
+  const demographics = [
+    "tiny homes",
+    "small business",
+    "remote workers",
+    "students",
+    "seniors",
+    "parents",
+    "kids",
+    "children",
+    "teenagers",
+    "professionals",
+    "developers",
+    "designers",
+    "writers",
+    "artists",
+    "musicians",
+    "gamers",
+  ];
+  demographics.forEach((demo) => {
+    if (text.includes(demo)) {
+      nicheTerms.push(demo);
+    }
+  });
+
+  // Pattern 4: Compound terms like "construction workers", "dog owners"
+  const compoundPattern = text.match(
+    /([a-z]+)\s+(workers|owners|users|professionals|experts|enthusiasts|lovers)/g
+  );
+  if (compoundPattern) {
+    compoundPattern.forEach((term) => nicheTerms.push(term));
+  }
+
+  return [...new Set(nicheTerms)]; // Deduplicate
+}
+
+/**
+ * Check if a competitor mentions the niche terms.
+ * If the idea is "voice journaling for construction workers",
+ * generic "voice journaling" apps shouldn't count as strong competitors.
+ */
+function competitorMatchesNiche(
+  competitor: SearchResult,
+  nicheTerms: string[]
+): boolean {
+  if (nicheTerms.length === 0) return true; // No niche = all competitors count
+
+  const competitorText =
+    `${competitor.title} ${competitor.description}`.toLowerCase();
+
+  // Competitor matches niche if it mentions ANY of the niche terms
+  const matches = nicheTerms.some((term) => competitorText.includes(term));
+  return matches;
+}
+
+/**
+ * Detect if a search result is an academic/research source.
+ * Academic papers inflate saturation scores for novel commercial ideas.
+ */
+function isAcademicSource(result: SearchResult): boolean {
+  const url = result.url.toLowerCase();
+  const title = result.title.toLowerCase();
+
+  // Academic URL patterns
+  const academicDomains = [
+    ".edu",
+    "sciencedirect.com",
+    "researchgate.net",
+    "arxiv.org",
+    "ieee.org",
+    "acm.org",
+    "springer.com",
+    "nature.com",
+    "scholar.google",
+    "pubmed",
+    "ncbi.nlm.nih.gov",
+    "semanticscholar.org",
+    "jstor.org",
+    "wiley.com",
+    "tandfonline.com",
+    "mdpi.com",
+    "frontiersin.org",
+  ];
+
+  // Check URL
+  if (academicDomains.some((domain) => url.includes(domain))) {
+    return true;
+  }
+
+  // Academic journal/publication patterns in title
+  const academicPatterns = [
+    "scientific reports",
+    "journal of",
+    "proceedings of",
+    "international conference",
+    "research paper",
+    "ieee",
+    "acm",
+    "colab",
+    "cluster computing",
+    "| science",
+    "nature communications",
+    "framework for",
+    "system for",
+    "novel approach",
+    "proposed method",
+  ];
+
+  if (academicPatterns.some((pattern) => title.includes(pattern))) {
+    return true;
+  }
+
+  // Academic paper title patterns (formal, research-style titles)
+  // Typically: "A [Technical] [System/Method/Framework] for [Purpose]"
+  if (
+    title.match(/^a [a-z-]+ (blockchain|system|framework|method|approach)/i)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Search for competitors using multiple sources.
  * Runs all searches in parallel for speed.
+ * Filters out academic/research papers to focus on commercial competition.
  */
 async function searchForCompetitors(input: IdeaInput): Promise<SearchResult[]> {
   const query = input.title; // Use title as search query
@@ -152,10 +600,16 @@ async function searchForCompetitors(input: IdeaInput): Promise<SearchResult[]> {
     }
   }
 
-  console.log(
-    `Found ${unique.length} unique competitors across ${sources.length} sources`
+  // Filter out academic sources - focus on commercial products
+  const commercialResults = unique.filter(
+    (result) => !isAcademicSource(result)
   );
-  return unique.slice(0, 50); // Cap at 50 total results
+  const academicCount = unique.length - commercialResults.length;
+
+  console.log(
+    `Found ${unique.length} unique competitors across ${sources.length} sources (${academicCount} academic filtered)`
+  );
+  return commercialResults.slice(0, 50); // Cap at 50 total results
 }
 
 /**
@@ -169,40 +623,51 @@ function getCompetitionLevel(score: number): CompetitionLevel {
 }
 
 /**
- * Generate simple, helpful suggestions.
+ * Generate actionable differentiation suggestions (2-3 bullets).
  */
 function generateSuggestions(
   score: number,
   closeCompetitors: number,
-  totalCompetitors: number
+  input: IdeaInput,
+  topCompetitors: Array<{
+    title: string;
+    snippet: string;
+    url: string;
+    similarity: number;
+  }>
 ): string[] {
   const suggestions: string[] = [];
 
+  // Suggestion 1: Market-based advice
   if (closeCompetitors > 5) {
     suggestions.push(
-      `Found ${closeCompetitors} very similar products. Consider finding a unique angle or niche.`
+      "Target a narrower audience (e.g., specific industry or user segment) instead of everyone."
     );
-  }
-
-  if (score < 40) {
+  } else if (closeCompetitors === 0) {
     suggestions.push(
-      "This market is saturated. Focus on differentiation or a specific user segment."
+      "Your idea appears unique — focus on validating demand before building."
     );
-  } else if (score >= 70) {
+  } else {
     suggestions.push(
-      "Your idea appears unique! Validate demand with potential users."
+      "Consider what makes your approach different from the top 3 competitors listed above."
     );
   }
 
-  if (totalCompetitors > 0) {
+  // Suggestion 2: Feature-based differentiation
+  if (score < 50) {
     suggestions.push(
-      `Study the ${totalCompetitors} competitors found to identify gaps.`
+      "Focus on one unique feature or workflow that competitors don't emphasize."
+    );
+  } else {
+    suggestions.push(
+      "Your idea has differentiation potential — emphasize what makes it unique in your messaging."
     );
   }
 
-  if (suggestions.length === 0) {
-    suggestions.push("Build an MVP and gather user feedback early.");
-  }
+  // Suggestion 3: Industry specialization
+  suggestions.push(
+    "Your idea could stand out by specializing in a specific industry or use case."
+  );
 
-  return suggestions;
+  return suggestions.slice(0, 3); // Max 3 suggestions
 }

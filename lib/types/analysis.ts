@@ -21,9 +21,29 @@ export interface AnalysisResult {
   /** How crowded the market is for this type of idea */
   competitionLevel: CompetitionLevel;
 
-  /** Actionable suggestions for the user */
+  /** Top 3 closest competitors (for focused display) */
+  topCompetitors: Array<{
+    title: string;
+    snippet: string;
+    url: string;
+    similarity: number;
+  }>;
+
+  /** Count of highly similar products found */
+  similarCount: number;
+
+  /** Simple explanation of why we scored it this way */
+  explanation: string;
+
+  /** Actionable differentiation suggestions (2-3 bullets) */
   suggestions: string[];
 
-  /** Similar products found via web search */
+  /** Common keywords/themes found across idea + competitors */
+  keywords: string[];
+
+  /** Unique feature detected in the idea (if any) */
+  uniqueAngle?: string;
+
+  /** All similar products found via web search (for detailed view) */
   similarProducts?: SearchResult[];
 }
