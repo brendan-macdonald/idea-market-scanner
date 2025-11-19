@@ -28,14 +28,33 @@ import { cosineSimilarity } from "./embeddings/similarity";
 const SIMILARITY_THRESHOLD = 0.6;
 
 /**
+ * Progress callback type for real-time status updates
+ */
+export type ProgressCallback = (status: string, progress: number) => void;
+
+/**
+ * Options for analysis
+ */
+export interface AnalysisOptions {
+  onProgress?: ProgressCallback;
+}
+
+/**
  * Main analysis function - simple and straightforward.
  */
-export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
+export async function analyzeIdea(
+  input: IdeaInput,
+  options?: AnalysisOptions
+): Promise<AnalysisResult> {
+  const onProgress = options?.onProgress || (() => {});
+  
   try {
     // Step 1: Search for competitors across multiple sources
+    onProgress("Searching for competitors across web, HackerNews, and App Store...", 10);
     const competitors = await searchForCompetitors(input);
 
     if (competitors.length === 0) {
+      onProgress("Analysis complete!", 100);
       return {
         originalityScore: 85,
         competitionLevel: "Low",
@@ -54,6 +73,7 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
     }
 
     // Step 2: Generate embeddings
+    onProgress(`Analyzing ${competitors.length} competitors with AI...`, 40);
     const ideaText = `${input.title}. ${input.description}`;
     const competitorTexts = competitors.map(
       (c) => `${c.title}. ${c.description}`
@@ -68,6 +88,7 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
     const competitorEmbeddings = embeddings.slice(1);
 
     // Step 3: Calculate similarities
+    onProgress("Calculating similarity scores...", 60);
     const similarities = competitorEmbeddings
       .map((compEmbed, idx) => ({
         similarity: cosineSimilarity(ideaEmbedding, compEmbed),
@@ -77,6 +98,7 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
 
     // Step 3.5: Filter for niche matching
     // If the idea targets a specific niche/audience, competitors must mention it
+    onProgress("Filtering for niche-specific competitors...", 70);
     const nicheTerms = extractNicheTerms(input);
     const nicheFilteredSimilarities =
       nicheTerms.length > 0
@@ -94,6 +116,7 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
         : similarities;
 
     // Step 4: Compute simple metrics
+    onProgress("Computing originality score...", 85);
     const closeCompetitors = nicheFilteredSimilarities.filter(
       (s) => s.similarity >= SIMILARITY_THRESHOLD
     );
@@ -161,6 +184,8 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
       keywords
     );
 
+    onProgress("Analysis complete!", 100);
+
     return {
       originalityScore,
       competitionLevel,
@@ -179,6 +204,7 @@ export async function analyzeIdea(input: IdeaInput): Promise<AnalysisResult> {
     };
   } catch (error) {
     console.error("Analysis failed:", error);
+    onProgress("Analysis failed", 0);
     return {
       originalityScore: 50,
       competitionLevel: "Medium",

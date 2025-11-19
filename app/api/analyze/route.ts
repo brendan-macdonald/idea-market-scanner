@@ -5,8 +5,8 @@ import type { IdeaInput } from "@/lib/types/analysis";
 /**
  * POST /api/analyze
  *
- * Simple API route - just validate input and call analyzeIdea().
- * All logic is in the service layer.
+ * Supports streaming progress updates via Server-Sent Events (SSE).
+ * Client can set Accept: text/event-stream for progress updates.
  */
 export async function POST(request: NextRequest) {
   try {
@@ -23,9 +23,62 @@ export async function POST(request: NextRequest) {
       description: body.description,
     };
 
-    // Call the simplified analysis service
-    const result = await analyzeIdea(input);
+    // Check if client wants streaming progress
+    const acceptHeader = request.headers.get("accept") || "";
+    const wantsStream = acceptHeader.includes("text/event-stream");
 
+    if (wantsStream) {
+      // Stream progress updates
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            // Call analysis with progress callback
+            const result = await analyzeIdea(input, {
+              onProgress: (status: string, progress: number) => {
+                // Send progress update as SSE
+                const data = JSON.stringify({ status, progress });
+                controller.enqueue(
+                  encoder.encode(`data: ${data}\n\n`)
+                );
+              },
+            });
+
+            // Send final result
+            const finalData = JSON.stringify({ 
+              status: "complete", 
+              progress: 100, 
+              result 
+            });
+            controller.enqueue(
+              encoder.encode(`data: ${finalData}\n\n`)
+            );
+            controller.close();
+          } catch (error) {
+            console.error("Stream error:", error);
+            const errorData = JSON.stringify({ 
+              status: "error", 
+              error: "Analysis failed" 
+            });
+            controller.enqueue(
+              encoder.encode(`data: ${errorData}\n\n`)
+            );
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+        },
+      });
+    }
+
+    // Non-streaming: just return the result
+    const result = await analyzeIdea(input);
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     console.error("Error analyzing idea:", error);

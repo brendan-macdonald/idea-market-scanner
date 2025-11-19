@@ -14,10 +14,11 @@ export default function HomePage() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [progressStatus, setProgressStatus] = useState<string>("");
+  const [progressPercent, setProgressPercent] = useState<number>(0);
 
   /**
-   * Handles form submission.
-   * Calls the API, manages loading/error states.
+   * Handles form submission with streaming progress updates.
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,26 +27,74 @@ export default function HomePage() {
     setError(null);
     setResult(null);
     setIsLoading(true);
+    setProgressStatus("Starting analysis...");
+    setProgressPercent(0);
 
     try {
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Accept": "text/event-stream",
         },
         body: JSON.stringify({ title, description }),
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        // API returned an error (400, 500, etc.)
+        const data = await response.json();
         setError(data.error || "Something went wrong");
         return;
       }
 
-      // Success! Show results
-      setResult(data);
+      // Check if we got a stream or regular JSON
+      const contentType = response.headers.get("content-type");
+      
+      if (contentType?.includes("text/event-stream")) {
+        // Handle streaming response
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+
+        if (!reader) {
+          throw new Error("No response body");
+        }
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          // Decode and parse SSE data
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const jsonData = line.slice(6);
+              try {
+                const data = JSON.parse(jsonData);
+                
+                if (data.status === "complete" && data.result) {
+                  setResult(data.result);
+                  setProgressStatus("Complete!");
+                  setProgressPercent(100);
+                } else if (data.status === "error") {
+                  setError(data.error || "Analysis failed");
+                } else {
+                  setProgressStatus(data.status || "Processing...");
+                  setProgressPercent(data.progress || 0);
+                }
+              } catch (parseError) {
+                console.error("Failed to parse SSE data:", parseError);
+              }
+            }
+          }
+        }
+      } else {
+        // Fallback: regular JSON response
+        const data = await response.json();
+        setResult(data);
+        setProgressStatus("Complete!");
+        setProgressPercent(100);
+      }
     } catch (err) {
       // Network error or JSON parse error
       setError("Failed to connect to the server");
@@ -174,6 +223,26 @@ export default function HomePage() {
                 {isLoading ? "Analyzing..." : "Analyze My Idea"}
               </button>
             </form>
+
+            {/* Progress Indicator */}
+            {isLoading && (
+              <div className="mt-4 p-4 bg-indigo-50 border border-indigo-200 rounded-md">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-indigo-800 text-sm font-medium">
+                    {progressStatus || "Starting analysis..."}
+                  </p>
+                  <span className="text-indigo-600 text-sm font-semibold">
+                    {progressPercent}%
+                  </span>
+                </div>
+                <div className="w-full bg-indigo-200 rounded-full h-2">
+                  <div
+                    className="bg-indigo-600 h-2 rounded-full transition-all duration-300 ease-out"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Error Message */}
             {error && (
